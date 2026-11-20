@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recherche ID chaîne</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, sans-serif;
+      background: #121212;
+      color: #f0f0f0;
+      line-height: 1.4;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 8px; }
+    p { color: #aaa; margin: 0 0 16px; }
+    input, button {
+      width: 100%;
+      padding: 14px;
+      margin: 8px 0;
+      font-size: 1.05rem;
+      border-radius: 10px;
+      border: 1px solid #333;
+    }
+    button, input[type="file"] { background: #1e1e1e; color: #f0f0f0; }
+    input[type="search"] { background: #fff; color: #111; }
+    .result {
+      background: #1e1e1e;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 10px 0;
+    }
+    .name { font-weight: 700; }
+    .id { color: #8ec5ff; font-size: 1.2rem; }
+    button.copy { background: #3d8bfd; color: #fff; border: 0; }
+  </style>
+</head>
+<body>
+  <h1>Recherche d’ID</h1>
+  <p>Choisis le fichier enregistré sur le téléphone. Il n’est pas envoyé sur GitHub. Aucun mot de passe n’est demandé.</p>
+
+  <input id="file" type="file" accept=".json,.txt,application/json,text/plain">
+  <input id="q" type="search" placeholder="Nom de la chaîne" autocomplete="off">
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script>
+    var channels = [];
+    var fileInput = document.getElementById("file");
+    var searchInput = document.getElementById("q");
+    var statusEl = document.getElementById("status");
+    var resultsEl = document.getElementById("results");
+
+    fileInput.addEventListener("change", function () {
+      var file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(reader.result);
+          if (!Array.isArray(data)) throw new Error("pas une liste");
+          channels = data.filter(function (item) {
+            return item && item.name != null && item.stream_id != null;
+          });
+          statusEl.textContent = channels.length + " chaînes chargées. Rien n’a été envoyé en ligne.";
+          search();
+        } catch (e) {
+          channels = [];
+          statusEl.textContent = "Fichier illisible. Il doit être le texte brut qui commence par [ et non une page web enregistrée.";
+          resultsEl.innerHTML = "";
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    searchInput.addEventListener("input", search);
+
+    function search() {
+      resultsEl.innerHTML = "";
+      var q = searchInput.value.trim().toLowerCase();
+      if (!channels.length || !q) return;
+
+      var matches = channels.filter(function (item) {
+        return String(item.name).toLowerCase().indexOf(q) !== -1;
+      }).slice(0, 40);
+
+      statusEl.textContent = matches.length + " résultat(s)" +
+        (matches.length === 40 ? " (40 maximum)" : "") + ".";
+
+      matches.forEach(function (item) {
+        var box = document.createElement("div");
+        box.className = "result";
+
+        var name = document.createElement("div");
+        name.className = "name";
+        name.textContent = item.name;
+
+        var idLine = document.createElement("div");
+        idLine.append("ID : ");
+        var idSpan = document.createElement("span");
+        idSpan.className = "id";
+        idSpan.textContent = item.stream_id;
+        idLine.appendChild(idSpan);
+
+        var button = document.createElement("button");
+        button.className = "copy";
+        button.textContent = "Copier l’ID";
+        button.onclick = function () {
+          var text = String(item.stream_id);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+          }
+          button.textContent = "Copié : " + text;
+        };
+
+        box.append(name, idLine, button);
+        resultsEl.appendChild(box);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,123 +1,222 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Recherche ID chaîne</title>
+  <title>Recherche chaînes, films, séries</title>
   <style>
+    :root {
+      color-scheme: dark;
+      --bg: #121417;
+      --card: #1c2128;
+      --line: #30363d;
+      --text: #f0f3f6;
+      --muted: #9aa4b2;
+      --accent: #3d8bfd;
+    }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 16px;
       font-family: system-ui, sans-serif;
-      background: #121212;
-      color: #f0f0f0;
-      line-height: 1.4;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
     }
     h1 { font-size: 1.35rem; margin: 0 0 8px; }
-    p { color: #aaa; margin: 0 0 16px; }
-    input, button {
-      width: 100%;
+    p { color: var(--muted); line-height: 1.4; }
+    label, button, input { font: inherit; }
+    .box {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
       padding: 14px;
-      margin: 8px 0;
+      margin: 12px 0;
+    }
+    input[type="search"], input[type="file"] {
+      width: 100%;
+      margin-top: 8px;
+    }
+    input[type="search"] {
+      background: #0d1117;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 1.15rem;
+    }
+    button.result {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin-top: 10px;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0d1117;
+      color: var(--text);
       font-size: 1.05rem;
-      border-radius: 10px;
-      border: 1px solid #333;
     }
-    button, input[type="file"] { background: #1e1e1e; color: #f0f0f0; }
-    input[type="search"] { background: #fff; color: #111; }
-    .result {
-      background: #1e1e1e;
-      border-radius: 10px;
-      padding: 12px;
-      margin: 10px 0;
+    button.result strong {
+      display: block;
+      font-size: 1.35rem;
+      margin-top: 6px;
     }
-    .name { font-weight: 700; }
-    .id { color: #8ec5ff; font-size: 1.2rem; }
-    button.copy { background: #3d8bfd; color: #fff; border: 0; }
+    .extra { color: var(--muted); font-size: 0.95rem; }
+    #status { min-height: 1.4em; }
+    .help { font-size: 0.92rem; word-break: break-word; }
   </style>
 </head>
 <body>
-  <h1>Recherche d’ID</h1>
-  <p>Choisis le fichier enregistré sur le téléphone. Il n’est pas envoyé sur GitHub. Aucun mot de passe n’est demandé.</p>
+  <h1>Recherche</h1>
+  <p>Choisis un fichier déjà téléchargé. Rien n’est envoyé sur Internet. Appuie sur un résultat pour copier l’identifiant.</p>
 
-  <input id="file" type="file" accept=".json,.txt,application/json,text/plain">
-  <input id="q" type="search" placeholder="Nom de la chaîne" autocomplete="off">
-  <div id="status"></div>
-  <div id="results"></div>
+  <div class="box">
+    <label for="file">Fichier des chaînes, des films, des séries, ou des épisodes</label>
+    <input id="file" type="file">
+    <p id="status">Aucun fichier chargé.</p>
+  </div>
+
+  <div class="box">
+    <label for="q">Nom à chercher</label>
+    <input id="q" type="search" placeholder="Au moins 2 lettres" autocomplete="off">
+    <div id="results"></div>
+  </div>
+
+  <div class="box help">
+    <p>Films : <code>action=get_vod_streams</code>. L’identifiant affiché sert dans VLC, avec l’extension indiquée (.mkv, .mp4…).</p>
+    <p>Séries : <code>action=get_series</code>. Cet identifiant n’est pas celui d’un épisode. Ensuite télécharge <code>action=get_series_info&series_id=ID</code> et charge ce second fichier ici.</p>
+  </div>
 
   <script>
-    var channels = [];
-    var fileInput = document.getElementById("file");
-    var searchInput = document.getElementById("q");
-    var statusEl = document.getElementById("status");
-    var resultsEl = document.getElementById("results");
+    const fileInput = document.getElementById("file");
+    const queryInput = document.getElementById("q");
+    const status = document.getElementById("status");
+    const results = document.getElementById("results");
+    let items = [];
 
-    fileInput.addEventListener("change", function () {
-      var file = fileInput.files && fileInput.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function () {
-        try {
-          var data = JSON.parse(reader.result);
-          if (!Array.isArray(data)) throw new Error("pas une liste");
-          channels = data.filter(function (item) {
-            return item && item.name != null && item.stream_id != null;
-          });
-          statusEl.textContent = channels.length + " chaînes chargées. Rien n’a été envoyé en ligne.";
-          search();
-        } catch (e) {
-          channels = [];
-          statusEl.textContent = "Fichier illisible. Il doit être le texte brut qui commence par [ et non une page web enregistrée.";
-          resultsEl.innerHTML = "";
-        }
-      };
-      reader.readAsText(file);
-    });
+    function fold(text) {
+      return String(text || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+    }
 
-    searchInput.addEventListener("input", search);
-
-    function search() {
-      resultsEl.innerHTML = "";
-      var q = searchInput.value.trim().toLowerCase();
-      if (!channels.length || !q) return;
-
-      var matches = channels.filter(function (item) {
-        return String(item.name).toLowerCase().indexOf(q) !== -1;
-      }).slice(0, 40);
-
-      statusEl.textContent = matches.length + " résultat(s)" +
-        (matches.length === 40 ? " (40 maximum)" : "") + ".";
-
-      matches.forEach(function (item) {
-        var box = document.createElement("div");
-        box.className = "result";
-
-        var name = document.createElement("div");
-        name.className = "name";
-        name.textContent = item.name;
-
-        var idLine = document.createElement("div");
-        idLine.append("ID : ");
-        var idSpan = document.createElement("span");
-        idSpan.className = "id";
-        idSpan.textContent = item.stream_id;
-        idLine.appendChild(idSpan);
-
-        var button = document.createElement("button");
-        button.className = "copy";
-        button.textContent = "Copier l’ID";
-        button.onclick = function () {
-          var text = String(item.stream_id);
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text);
-          }
-          button.textContent = "Copié : " + text;
-        };
-
-        box.append(name, idLine, button);
-        resultsEl.appendChild(box);
+    function readFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("lecture impossible"));
+        reader.readAsText(file);
       });
     }
+
+    function toItems(data) {
+      if (Array.isArray(data)) {
+        if (!data.length) return { label: "fichier vide", items: [] };
+        const sample = data[0] || {};
+        if (sample.series_id != null && sample.stream_id == null) {
+          return {
+            label: "séries",
+            items: data.map((row) => ({
+              name: row.name || "Sans nom",
+              id: String(row.series_id),
+              extra: "identifiant de la série, pas d’un épisode"
+            }))
+          };
+        }
+        if (sample.stream_id != null) {
+          const movie = sample.stream_type === "movie" || sample.container_extension;
+          return {
+            label: movie ? "films" : "chaînes TV",
+            items: data.map((row) => ({
+              name: row.name || "Sans nom",
+              id: String(row.stream_id),
+              extra: row.container_extension ? "fichier ." + row.container_extension : "identifiant du flux"
+            }))
+          };
+        }
+      }
+
+      if (data && data.episodes && typeof data.episodes === "object") {
+        const seriesName = data.info && data.info.name ? data.info.name + " " : "";
+        const episodes = [];
+        Object.keys(data.episodes).forEach((seasonKey) => {
+          (data.episodes[seasonKey] || []).forEach((episode) => {
+            const season = String(episode.season || seasonKey).padStart(2, "0");
+            const number = String(episode.episode_num || "").padStart(2, "0");
+            episodes.push({
+              name: (seriesName + "S" + season + "E" + number + " " + (episode.title || "")).trim(),
+              id: String(episode.id),
+              extra: episode.container_extension ? "fichier ." + episode.container_extension : "identifiant de l’épisode"
+            });
+          });
+        });
+        return { label: "épisodes", items: episodes };
+      }
+
+      throw new Error("format non reconnu");
+    }
+
+    function show(list) {
+      results.innerHTML = "";
+      list.forEach((item) => {
+        const button = document.createElement("button");
+        button.className = "result";
+        button.type = "button";
+        button.innerHTML =
+          item.name +
+          "<strong>" + item.id + "</strong>" +
+          "<span class=\"extra\">" + item.extra + "</span>";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(item.id);
+            status.textContent = "Identifiant copié : " + item.id;
+          } catch (error) {
+            status.textContent = "Copie impossible. Note l’identifiant : " + item.id;
+          }
+        });
+        results.appendChild(button);
+      });
+    }
+
+    function search() {
+      const query = fold(queryInput.value.trim());
+      if (query.length < 2) {
+        results.innerHTML = "";
+        return;
+      }
+      const found = items.filter((item) => fold(item.name).includes(query)).slice(0, 40);
+      if (!found.length) {
+        results.innerHTML = "<p>Aucun résultat.</p>";
+        return;
+      }
+      show(found);
+      if (found.length === 40) {
+        status.textContent = status.textContent.replace(/ \|.*/, "") + " | 40 premiers résultats, précise le nom";
+      }
+    }
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files && fileInput.files[0];
+      results.innerHTML = "";
+      items = [];
+      if (!file) return;
+      status.textContent = "Lecture…";
+      try {
+        const text = (await readFile(file)).trim();
+        if (text.startsWith("<") || text.startsWith("%PDF")) {
+          throw new Error("ce fichier est une page web ou un PDF, pas la liste");
+        }
+        const parsed = toItems(JSON.parse(text));
+        items = parsed.items;
+        status.textContent = parsed.label + " : " + items.length + " éléments";
+        search();
+      } catch (error) {
+        status.textContent = "Fichier inutilisable. " + error.message;
+      }
+    });
+
+    queryInput.addEventListener("input", search);
   </script>
 </body>
 </html>

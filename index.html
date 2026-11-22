@@ -11,9 +11,10 @@
       --card: #1a1f27;
       --line: #2c3440;
       --text: #f2f4f8;
-      --muted: #9aa3b2;
+      --muted: #c5ccd6;
       --accent: #3d8bfd;
-      --id: #8dffb8;
+      --ok: #8dffb8;
+      --err: #ffb4b4;
     }
     * { box-sizing: border-box; }
     body {
@@ -21,9 +22,9 @@
       font-family: system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 16px 16px 40px;
+      padding: 16px 16px 48px;
     }
-    h1 { font-size: 1.35rem; margin: 0 0 6px; }
+    h1 { font-size: 1.35rem; margin: 0 0 8px; }
     .hint { margin: 0 0 16px; color: var(--muted); line-height: 1.4; }
     .tabs {
       display: grid;
@@ -32,237 +33,233 @@
       margin-bottom: 12px;
     }
     button, input { font: inherit; }
-    .tabs button, .result {
-      min-height: 64px;
+    .tabs button, #search, .hit {
+      min-height: 56px;
       border-radius: 14px;
+    }
+    .tabs button {
       border: 1px solid var(--line);
       background: var(--card);
       color: var(--text);
+      font-weight: 700;
     }
-    .tabs button { font-size: 1.05rem; font-weight: 700; }
     .tabs button.active {
       background: var(--accent);
       border-color: var(--accent);
-      color: #fff;
     }
-    #q {
+    #search {
       width: 100%;
-      min-height: 64px;
-      padding: 12px 16px;
-      border-radius: 14px;
       border: 1px solid var(--line);
-      background: #12161c;
+      background: var(--card);
       color: var(--text);
-      font-size: 1.15rem;
+      padding: 0 16px;
+      font-size: 1.1rem;
     }
-    #status { min-height: 1.4em; color: var(--muted); margin: 12px 4px; }
-    #results { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-    .result { width: 100%; text-align: left; padding: 14px 16px; display: block; }
-    .name { font-size: 1.15rem; font-weight: 700; line-height: 1.3; }
-    .meta {
-      margin-top: 8px;
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: var(--id);
+    #status { min-height: 1.4em; color: var(--muted); }
+    #status.ok { color: var(--ok); }
+    #status.err { color: var(--err); font-weight: 700; }
+    ul { list-style: none; margin: 12px 0 0; padding: 0; }
+    .hit {
+      width: 100%;
+      margin: 0 0 8px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
     }
-    .small {
+    .name { display: block; font-size: 1.05rem; font-weight: 700; }
+    .copyline {
       display: block;
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 0.95rem;
-      font-weight: 500;
+      margin-top: 6px;
+      color: var(--ok);
+      word-break: break-all;
     }
+    .small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.9rem; }
   </style>
 </head>
 <body>
   <h1>Recherche d'identifiant</h1>
-  <p class="hint">Choisis une liste, tape au moins 2 lettres, puis appuie sur un résultat pour copier le numéro.</p>
-
+  <p class="hint">Choisis une liste, tape au moins 2 lettres, puis appuie sur un résultat. Le texte vert est copié.</p>
   <div class="tabs">
-    <button type="button" data-list="live" class="active">Chaînes</button>
-    <button type="button" data-list="movie">Films</button>
-    <button type="button" data-list="series">Séries</button>
+    <button type="button" data-file="live.json">Chaînes</button>
+    <button type="button" data-file="movie.json">Films</button>
+    <button type="button" data-file="series.json">Séries</button>
   </div>
-
-  <input id="q" type="search" placeholder="Nom de la chaîne" autocomplete="off" enterkeyhint="search">
-  <p id="status">Tape au moins 2 lettres.</p>
+  <input id="search" type="search" placeholder="Nom de la chaîne" autocomplete="off" enterkeyhint="search">
+  <p id="status">Page prête.</p>
   <ul id="results"></ul>
 
   <script>
-    var FILES = {
-      live: "live.json",
-      movie: "movie.json",
-      series: "series.json"
-    };
-    var LABELS = {
-      live: "chaînes",
-      movie: "films",
-      series: "séries"
-    };
-
-    var current = "live";
-    var cache = {};
-    var input = document.getElementById("q");
-    var status = document.getElementById("status");
+    var buttons = Array.prototype.slice.call(document.querySelectorAll(".tabs button"));
+    var input = document.getElementById("search");
+    var statusEl = document.getElementById("status");
     var results = document.getElementById("results");
-    var tabs = document.querySelectorAll(".tabs button");
+    var cache = {};
+    var currentFile = "live.json";
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = kind || "";
+    }
 
     function norm(value) {
       return String(value || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
-        .trim();
-    }
-
-    function toList(data) {
-      if (Array.isArray(data)) return data;
-      if (data && typeof data === "object") {
-        var keys = Object.keys(data);
-        for (var i = 0; i < keys.length; i++) {
-          if (Array.isArray(data[keys[i]])) return data[keys[i]];
-        }
-      }
-      throw new Error("format");
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
     }
 
     function itemName(item) {
-      return item.name || item.title || "(sans nom)";
+      return String(item.name || item.title || "");
     }
 
-    function itemId(item, kind) {
-      if (kind === "series" && item.series_id != null) return item.series_id;
-      if (item.stream_id != null) return item.stream_id;
-      if (item.series_id != null) return item.series_id;
-      if (item.id != null) return item.id;
+    function itemId(item) {
+      if (item.series_id != null && item.series_id !== "") return String(item.series_id);
+      if (item.stream_id != null && item.stream_id !== "") return String(item.stream_id);
+      if (item.id != null && item.id !== "") return String(item.id);
       return "";
     }
 
-    function clearResults() {
-      results.textContent = "";
+    function copyValue(item) {
+      var id = itemId(item);
+      if (!id) return "";
+      if (currentFile === "live.json") return id + ".ts";
+      if (currentFile === "movie.json") return id + ".mkv";
+      return "&action=get_series_info&series_id=" + id;
     }
 
-    function loadList(kind) {
-      if (cache[kind]) return Promise.resolve(cache[kind]);
-      status.textContent = "Chargement des " + LABELS[kind] + "…";
-      return fetch(FILES[kind]).then(function (response) {
-        if (!response.ok) throw new Error("missing");
+    function clearResults() {
+      results.innerHTML = "";
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(function () {
+          return copyWithBox(text);
+        });
+      }
+      return copyWithBox(text);
+    }
+
+    function copyWithBox(text) {
+      var box = document.createElement("textarea");
+      box.value = text;
+      box.setAttribute("readonly", "");
+      box.style.position = "fixed";
+      box.style.left = "-9999px";
+      document.body.appendChild(box);
+      box.select();
+      var ok = document.execCommand("copy");
+      box.remove();
+      if (!ok) return Promise.reject(new Error("copie impossible"));
+      return Promise.resolve();
+    }
+
+    function loadList(file) {
+      if (cache[file]) return Promise.resolve(cache[file]);
+      return fetch(file + "?v=4").then(function (response) {
+        if (!response.ok) throw new Error("Fichier introuvable : " + file);
         return response.text();
       }).then(function (text) {
-        var trimmed = text.replace(/^\uFEFF/, "").trim();
-        if (!trimmed || trimmed.charAt(0) === "<") throw new Error("html");
-        cache[kind] = toList(JSON.parse(trimmed));
-        return cache[kind];
+        var clean = String(text || "").replace(/^\uFEFF/, "").trim();
+        if (!clean || clean.charAt(0) === "<") {
+          throw new Error("Mauvais fichier : " + file);
+        }
+        var data = JSON.parse(clean);
+        if (!Array.isArray(data)) throw new Error("Impossible de lire " + file);
+        cache[file] = data;
+        return data;
       });
     }
 
-    function showError(error) {
+    function showResults(list, query) {
       clearResults();
-      if (error && error.message === "missing") {
-        status.textContent = "Fichier introuvable : " + FILES[current];
-        return;
-      }
-      if (error && error.message === "html") {
-        status.textContent = "Mauvais fichier. Il doit commencer par [ et non par une page web.";
-        return;
-      }
-      status.textContent = "Impossible de lire " + FILES[current];
-    }
-
-    function copyId(id, label) {
-      if (!id) return;
-      var done = function () { label.textContent = "Copié : " + id; };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(String(id)).then(done).catch(function () {
-          fallbackCopy(id);
-          done();
-        });
-        return;
-      }
-      fallbackCopy(id);
-      done();
-    }
-
-    function fallbackCopy(id) {
-      var area = document.createElement("textarea");
-      area.value = String(id);
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
-    }
-
-    function render() {
-      var query = norm(input.value);
-      var kind = current;
-      clearResults();
-      if (query.length < 2) {
-        status.textContent = "Tape au moins 2 lettres.";
-        return;
-      }
-
-      loadList(kind).then(function (list) {
-        if (norm(input.value) !== query || current !== kind) return;
-
-        var found = [];
-        for (var i = 0; i < list.length; i++) {
-          var item = list[i] || {};
-          var name = itemName(item);
-          var id = String(itemId(item, kind));
-          if (norm(name).indexOf(query) !== -1 || norm(id).indexOf(query) !== -1) {
-            found.push({ name: name, id: id });
-            if (found.length === 40) break;
-          }
+      var found = [];
+      for (var i = 0; i < list.length; i++) {
+        if (norm(itemName(list[i])).indexOf(query) !== -1) {
+          found.push(list[i]);
+          if (found.length === 50) break;
         }
+      }
+      if (!found.length) {
+        setStatus("Aucun résultat.", "err");
+        return;
+      }
+      setStatus(found.length + " résultat" + (found.length > 1 ? "s" : "") + " affiché" + (found.length > 1 ? "s" : "") + ".", "ok");
+      found.forEach(function (item) {
+        var text = copyValue(item);
+        var li = document.createElement("li");
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "hit";
 
-        var extra = kind === "series"
-          ? " Ce numéro est celui de la série, pas d'un épisode."
-          : "";
-        status.textContent = found.length
-          ? found.length + " résultat(s)." + extra
-          : "Aucun résultat." + extra;
+        var name = document.createElement("span");
+        name.className = "name";
+        name.textContent = itemName(item) || "Sans nom";
 
-        found.forEach(function (item) {
-          var li = document.createElement("li");
-          var button = document.createElement("button");
-          button.type = "button";
-          button.className = "result";
+        var line = document.createElement("span");
+        line.className = "copyline";
+        line.textContent = text || "Pas d'identifiant";
 
-          var name = document.createElement("div");
-          name.className = "name";
-          name.textContent = item.name;
+        var small = document.createElement("span");
+        small.className = "small";
+        small.textContent = "Appuyer pour copier";
 
-          var meta = document.createElement("div");
-          meta.className = "meta";
-          meta.textContent = "ID : " + (item.id || "?");
-
-          var small = document.createElement("span");
-          small.className = "small";
-          small.textContent = "Appuyer pour copier";
-
-          button.appendChild(name);
-          button.appendChild(meta);
-          button.appendChild(small);
-          button.addEventListener("click", function () {
-            copyId(item.id, small);
+        button.appendChild(name);
+        button.appendChild(line);
+        button.appendChild(small);
+        button.addEventListener("click", function () {
+          if (!text) {
+            setStatus("Cet élément n'a pas d'identifiant.", "err");
+            return;
+          }
+          copyText(text).then(function () {
+            small.textContent = "Copié";
+            setStatus("Copié : " + text, "ok");
+          }).catch(function () {
+            setStatus("Copie impossible. Note ceci : " + text, "err");
           });
-          li.appendChild(button);
-          results.appendChild(li);
         });
-      }).catch(showError);
+
+        li.appendChild(button);
+        results.appendChild(li);
+      });
     }
 
-    tabs.forEach(function (button) {
+    function refresh() {
+      var query = norm(input.value);
+      var file = currentFile;
+      clearResults();
+      setStatus("Chargement de " + file + "…");
+      loadList(file).then(function (list) {
+        if (file !== currentFile) return;
+        if (query.length < 2) {
+          setStatus(list.length + " éléments chargés. Tape au moins 2 lettres.", "ok");
+          return;
+        }
+        if (norm(input.value) !== query) return;
+        showResults(list, query);
+      }).catch(function (error) {
+        clearResults();
+        setStatus(error.message || "Erreur de chargement.", "err");
+      });
+    }
+
+    buttons.forEach(function (button) {
       button.addEventListener("click", function () {
-        tabs.forEach(function (other) { other.classList.remove("active"); });
+        buttons.forEach(function (other) { other.classList.remove("active"); });
         button.classList.add("active");
-        current = button.getAttribute("data-list");
-        input.placeholder = current === "live" ? "Nom de la chaîne" : "Nom du titre";
-        render();
+        currentFile = button.getAttribute("data-file");
+        input.placeholder = currentFile === "live.json" ? "Nom de la chaîne" : "Nom du titre";
+        refresh();
       });
     });
 
-    input.addEventListener("input", render);
+    input.addEventListener("input", refresh);
+    buttons[0].classList.add("active");
+    refresh();
   </script>
 </body>
 </html>
